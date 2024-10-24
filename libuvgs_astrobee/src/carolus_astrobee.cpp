@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-10-24 02:06:41
+ * @ Modified time: 2024-10-24 02:10:15
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -210,6 +210,7 @@ private:
             } else { //HOT FIX FOR MONO8 IMAGES
                 imageMono = image.clone();
                 cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
+                cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
             }
             cv::Mat preprocessedImage = preprocessImage(imageMono);
 
