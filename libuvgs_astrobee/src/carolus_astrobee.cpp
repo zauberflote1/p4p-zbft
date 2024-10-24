@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-10-24 01:20:37
+ * @ Modified time: 2024-10-24 02:06:41
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -207,13 +207,9 @@ private:
                 cv::cvtColor(image, imageMono, cv::COLOR_BGR2GRAY);
                 //CONVERT ORIGINAL TO HSV
                 cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
-                // cv::inRange(image, cv::Scalar(0, saturation_threshold_, 0), cv::Scalar(180, 255, 255), maskHSV);
-                // cv::bitwise_and(image, image, image, maskHSV);
-                // cv::cvtColor(image, imageMono, cv::COLOR_HSV2BGR);
-                // cv::cvtColor(imageMono, imageMono, cv::COLOR_BGR2GRAY);
-
-                
-
+            } else { //HOT FIX FOR MONO8 IMAGES
+                imageMono = image.clone();
+                cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
             }
             cv::Mat preprocessedImage = preprocessImage(imageMono);
 
@@ -261,7 +257,7 @@ private:
             preprocessedImage.release();
         }
     }
-CameraPose getFilteredPose(const CameraPose& new_pose) {
+    CameraPose getFilteredPose(const CameraPose& new_pose) {
     if (!pose_queue_.empty()) {
         const CameraPose& last_pose = pose_queue_.back();
         double translation_diff = (last_pose.t - new_pose.t).norm();
@@ -344,6 +340,7 @@ std::optional<std::vector<BlobCarolus>> findAndCalcContours(const cv::Mat &image
                 double y = moments.m01 / moments.m00; //CENTROID Y
                 
                 //HUE EXTRACTION PROCESS
+                //TODO: ADD CIRCULAR MEAN ALGORITHM FOR HUE EXTRACTION AND CHECK BEHAVIOR WHEN DEALING WITH MONO8->HSV
                 //BOUND THE CONTOUR
                 cv::Rect boundingRect = cv::boundingRect(contour);
                 cv::Mat BlobRegion = originalImageHSV(boundingRect);
