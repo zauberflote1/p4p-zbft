@@ -46,9 +46,7 @@ include_directories(
 set(SOURCE_FILES
   #src/carolus.cpp
   src/carolus_astrobee.cpp
-  src/p34p.cpp
   src/pose_est.cpp
-  src/madureira.cpp
   src/ceresP4P.cpp
 )
 

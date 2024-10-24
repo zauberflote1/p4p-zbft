@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-08-09 00:36:15
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-08-12 12:53:34
+ * @ Modified time: 2024-10-24 01:25:04
  * @ Description:
  * COBRAS FUMANTES
  * CERES P4P IMPLEMENTATION OUTER CLASS
@@ -13,13 +13,12 @@
 #include "carolus_node/ceresP4P.hpp"
 
 
-#include "carolus_node/ceresP4P.hpp"
 
 void CobrasFumantes::computeAndValidatePosesWithRefinement(
     const std::vector<Eigen::Vector3d>& sortedImagePoints,
     const std::vector<Eigen::Vector3d>& knownPoints,
     const std::vector<cv::Point2f>& undistortedPoints,
-    lambdatwist::CameraPose& bestPose) const
+    CameraPose& bestPose) const
 {
     // SET UP CERES PROBLEM
     ceres::Problem problem;
@@ -36,16 +35,7 @@ void CobrasFumantes::computeAndValidatePosesWithRefinement(
     Eigen::Vector2d observed_point;
     Eigen::Vector3d target_point;
 
-    if (measType_ == 1) { // AUTODIFF
-        for (size_t i = 0; i < sortedImagePoints.size(); ++i) {
-            observed_point = sortedImagePoints[i].head<2>();
-            target_point = knownPoints[i];
-
-            auto cost_function = std::make_unique<ceres::AutoDiffCostFunction<ReprojectionErrorWithAutoDiff, 2, 6>>(
-                new ReprojectionErrorWithAutoDiff(observed_point, target_point, focalX_length, focalY_length, cx, cy));
-            problem.AddResidualBlock(cost_function.release(), nullptr, camera_params);
-        }
-    } else if (measType_ == 2) { // ANALYTIC 
+    // ANALYTIC 
         for (size_t i = 0; i < sortedImagePoints.size(); ++i) {
             observed_point = sortedImagePoints[i].head<2>();
             target_point = knownPoints[i];
@@ -53,16 +43,7 @@ void CobrasFumantes::computeAndValidatePosesWithRefinement(
             auto cost_function = ReprojectionErrorWithAnalyticDiff::Create(observed_point, target_point, focalX_length, focalY_length, cx, cy);
             problem.AddResidualBlock(cost_function, nullptr, camera_params);
         }
-    } else if (measType_ == 3) { // NUMERICDIFF
-        for (size_t i = 0; i < sortedImagePoints.size(); ++i) {
-            observed_point = sortedImagePoints[i].head<2>();
-            target_point = knownPoints[i];
-
-            auto cost_function = std::make_unique<ceres::NumericDiffCostFunction<ReprojectionErrorWithNumericDiff, ceres::CENTRAL, 2, 6>>(
-                new ReprojectionErrorWithNumericDiff(observed_point, target_point, focalX_length, focalY_length, cx, cy));
-            problem.AddResidualBlock(cost_function.release(), nullptr, camera_params);
-        }
-    }
+    
 
     // SET UP SOLVER OPTIONS
     ceres::Solver::Options options;

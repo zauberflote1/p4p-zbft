@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-10-07 17:34:48
+ * @ Modified time: 2024-10-24 01:20:37
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -33,10 +33,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include "carolus_node/carolus_types.hpp"
 #include "carolus_node/pose_est.hpp"
-#include "carolus_node/p34p.hpp"
 #include "carolus_node/ceresP4P.hpp"
-//NOT USING MADUREIRA FOR NOW, LEGACY DEFINITION
-#include "carolus_node/madureira.h"
 
 class CarolusRexNode {
 public:
@@ -123,7 +120,7 @@ public:
 
         process_thread_ = std::thread(&CarolusRexNode::processImages, this);
         ROS_INFO("============================================");
-        ROS_INFO("A P3(4)P POSE ESTIMATION NODE");
+        ROS_INFO("A P4P POSE ESTIMATION NODE");
         ROS_INFO("@1822 TROPICAL EMPIRE. All rights reserved.");
         ROS_INFO("============================================");
     }
@@ -253,13 +250,11 @@ private:
                     for (const auto& blobCarolus : best_blobs) {
                         blobs.emplace_back(blobCarolus.blob);
                     }
-                    blobs_window[index_window] = blobs;
                     processBlobs(blobs, timestamp);
                 }
             } else {
                 ROS_INFO("No valid contours found.");
             }
-            index_window++;
             //RELEASE IMAGE MEMORY
             image.release();
             imageMono.release();
@@ -536,11 +531,6 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
         ssR << bestPose.R.format(Eigen::IOFormat());
         std::stringstream sst;
         sst << bestPose.t.transpose().format(Eigen::IOFormat());
-        //  std::ofstream outFile("/root/ros_ws/src/dronebags/filtered_pose.txt", std::ios_base::app);
-        //  if (outFile.is_open()) {
-        //     // outFile << "Filtered Rotation matrix R:\n" << ssR.str() << "\n";
-        //     outFile << sst.str() << "\n";
-        //     outFile.close();}
 
         ROS_INFO("Filtered Rotation matrix R:\n%s", ssR.str().c_str());
         ROS_INFO("Filtered Translation vector t:\n%s", sst.str().c_str());
@@ -619,8 +609,6 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
 //ROS LAUNCH MODIFIABLE PARAMETERS 
     //EXECUTION PARAMETERS
     int num_threads_;
-    std::unordered_map<size_t, std::vector<Blob>> blobs_window;
-    int index_window = 0;
     //BLOB FILTERING PARAMETERS
     double min_circularity_;
     int saturation_threshold_;

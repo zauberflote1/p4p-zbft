@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-07-01 21:46:13
+ * @ Modified time: 2024-10-24 01:08:24
  * @ Description: POSE ESTIMATION IMPLEMENTATION USING 4 POINTS 
  */
 
@@ -10,8 +10,7 @@
 #include <algorithm>
 #include <numeric>
 
-namespace {
-//SORT OF AN ADAPTION OF NASA ORIGINAL GEOMETRY SORTING, AS THE ORIGINAL IT DOESN'T WORK...
+//SORT OF AN ADAPTION OF NASA ORIGINAL GEOMETRY SORTING, IT WORKS NOW...
 auto calculatePairwiseDistances(const std::vector<Eigen::Vector3d>& points) {
     std::vector<std::tuple<int, int, double>> distances;
     for (size_t i = 0; i < points.size(); ++i) {
@@ -86,7 +85,6 @@ bool FindP1P2Indices(const double* v_p3p4, const double* v_p3pa, const double* v
     return success;
 }
 
-} // namespace
 
 bool SortTargetsUsingTetrahedronGeometry(const std::vector<Eigen::Vector3d>& candidate_target_list, std::vector<Eigen::Vector3d>& targets_out) {
     const uint8_t idx_lookup_table[6][2] =  {
@@ -161,94 +159,3 @@ bool SortTargetsUsingTetrahedronGeometry(const std::vector<Eigen::Vector3d>& can
     return is_sorted;
 }
 
-void computeAndValidatePoses(
-    const std::vector<Eigen::Vector3d>& imagePoints,
-    const std::vector<Eigen::Vector3d>& knownPoints,
-    const cv::Mat& cameraMatrix,
-    const std::vector<cv::Point2f>& undistortedPoints,
-    CameraPose& bestPose,
-    double& minError)
-{
-
-    std::vector<CameraPose> poses;
-    //P3P LAMBDA-TWIST
-    int numSolutions = p3p(imagePoints, knownPoints, &poses);
-
- 
-    for (int i = 0; i < numSolutions; ++i) {
-        const CameraPose& pose = poses[i];
-
-        //TARGET CENTERED, FOLLOW RIGHT-HAND RULE, Y>0
-        // if (pose.t[1] < 0) {
-        //     continue; 
-        // }
-
-        double totalError = 0.0;
-        for (size_t j = 0; j < knownPoints.size(); ++j) {
-            Eigen::Vector3d projectedPoint = pose.R * knownPoints[j] + pose.t;
-            projectedPoint /= projectedPoint.z();
-            Eigen::Vector2d projectedImagePoint(projectedPoint.x(), projectedPoint.y());
-            projectedImagePoint.x() = projectedImagePoint.x() * cameraMatrix.at<double>(0, 0) + cameraMatrix.at<double>(0, 2);
-            projectedImagePoint.y() = projectedImagePoint.y() * cameraMatrix.at<double>(1, 1) + cameraMatrix.at<double>(1, 2);
-            totalError += (projectedImagePoint - Eigen::Vector2d(undistortedPoints[j].x, undistortedPoints[j].y)).norm();
-        }
-        if (totalError < minError) {
-            minError = totalError;
-            bestPose = pose;
-        }
-    }
-}
-//ATTEMPT TO MINIMIZE ERROR BY ADDING FOURTH POINT
-//NEEDS CHANGES...
-void refinePoseWithFourthPoint(
-    const CameraPose& initialPose,
-    const Eigen::Vector3d& fourthImagePoint,
-    const Eigen::Vector3d& fourthKnownPoint,
-    const cv::Mat& cameraMatrix,
-    const cv::Point2f& undistortedFourthPoint,
-    CameraPose& refinedPose,
-    double& minError)
-{
-  
-    Eigen::Vector3d projectedPoint = initialPose.R * fourthKnownPoint + initialPose.t;
-    projectedPoint /= projectedPoint.z();
-    Eigen::Vector2d projectedImagePoint(projectedPoint.x(), projectedPoint.y());
-    projectedImagePoint.x() = projectedImagePoint.x() * cameraMatrix.at<double>(0, 0) + cameraMatrix.at<double>(0, 2);
-    projectedImagePoint.y() = projectedImagePoint.y() * cameraMatrix.at<double>(1, 1) + cameraMatrix.at<double>(1, 2);
-
-
-    double error = (projectedImagePoint - Eigen::Vector2d(undistortedFourthPoint.x, undistortedFourthPoint.y)).norm();
-
-
-    if (error < minError) {
-        minError = error;
-        refinedPose = initialPose;
-    }
-}
-
-void computeAndValidatePosesWithRefinement(
-    const std::vector<Eigen::Vector3d>& imagePoints,
-    const std::vector<Eigen::Vector3d>& knownPoints,
-    const cv::Mat& cameraMatrix,
-    const std::vector<cv::Point2f>& undistortedPoints,
-    CameraPose& bestPose)
-{
-    double minError = std::numeric_limits<double>::max();
-
-    //SPAN COMBINATIONS
-    for (int i = 0; i < 4; ++i) {
-        std::vector<Eigen::Vector3d> subImagePoints;
-        std::vector<Eigen::Vector3d> subKnownPoints;
-        for (int j = 0; j < 4; ++j) {
-            if (i != j) {
-                subImagePoints.push_back(imagePoints[j]);
-                subKnownPoints.push_back(knownPoints[j]);
-            }
-        }
-        CameraPose initialPose;
-        computeAndValidatePoses(subImagePoints, subKnownPoints, cameraMatrix, undistortedPoints, initialPose, minError);
-
-        //REFINE WITH FOURTH POINT
-        refinePoseWithFourthPoint(initialPose, imagePoints[i], knownPoints[i], cameraMatrix, undistortedPoints[i], bestPose, minError);
-    }
-}
