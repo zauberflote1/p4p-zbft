@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-10-24 02:10:15
+ * @ Modified time: 2024-10-24 21:09:19
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -151,11 +151,11 @@ private:
         // double threshValue1 = 220;
         // cv::threshold(image, thresholded, threshValue1, 255, cv::THRESH_BINARY);
         // cv::equalizeHist(image, image);
-    // double eq_clip_limit = 10.0;
-    //   cv::Size eq_win_size = cv::Size(8, 8);
-    //   cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(eq_clip_limit, eq_win_size);
-    //   clahe->apply(image, image);
-    //     cv::GaussianBlur(image, image, cv::Size(3, 3), 1);
+        // double eq_clip_limit = 10.0;
+        //   cv::Size eq_win_size = cv::Size(8, 8);
+        //   cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(eq_clip_limit, eq_win_size);
+        //   clahe->apply(image, image);
+        //     cv::GaussianBlur(image, image, cv::Size(3, 3), 1);
         // cv::equalizeHist(image, image);
         // cv::GaussianBlur(image, image, cv::Size(3, 3), 1);
         // double threshValue = 240;
@@ -572,6 +572,10 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
         } else if (msg->encoding == sensor_msgs::image_encodings::RGB8) {
             cv::Mat rgb(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0]), msg->step);
             cv::cvtColor(rgb, mat, cv::COLOR_RGB2BGR);
+        } else if (msg->encoding == sensor_msgs::image_encodings::bayer_grbg8){
+            cv::Mat bayer(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+            cv::cvtColor(bayer, mat, cv::COLOR_BayerGR2BGR);
+        }
         } else {
             ROS_ERROR("Unsupported encoding type: %s", msg->encoding.c_str());
             return cv::Mat();
@@ -614,7 +618,7 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
     std::vector<Eigen::Vector3d> knownPoints_;
     cv::Mat cameraMatrix_;
     cv::Mat distCoeffs_;
-    int counter = 0;
+
 
 
 
