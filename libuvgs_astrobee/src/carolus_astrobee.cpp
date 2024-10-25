@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-10-24 21:40:44
+ * @ Modified time: 2024-10-24 22:08:14
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -45,7 +45,11 @@ public:
         num_threads_(1),
         min_circularity_(0.4),
         saturation_threshold_(15),
-        keep_running_(true)
+        keep_running_(true),
+        //INITIALIZE THE QUEUE PARAMS
+        max_queue_size_(10), //PLAY WITH THIS NUMBER BASED ON MEMORY USAGE
+        curr_queue_size_(0)
+
     {
         //LOAD USER PREFERENCES AND PARAMETERS
 
@@ -129,6 +133,7 @@ public:
 
     ~CarolusRexNode() {
         keep_running_ = false;
+        cv_.notify_all();
         if (process_thread_.joinable()) {
             process_thread_.join();
         }
@@ -179,85 +184,104 @@ private:
     }
 
     void imageCallback(const sensor_msgs::ImageConstPtr& msg) {
+        {
         std::unique_lock<std::mutex> lock(queue_mutex_);
-        image_queue_.push(msg);
+        if (curr_queue_size_.load() >= max_queue_size_) {
+            ROS_WARN("Image queue is full, dropping oldest image.");
+            producer_image_queue_.pop();
+            producer_image_queue_.push(msg);
+        } else {
+            producer_image_queue_.push(msg);
+            curr_queue_size_.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+        //NOW NOTIFY THE PROCESSING THREAD
+        cv_.notify_one();
     }
 
     void processImages() {
         while (ros::ok() && keep_running_) {
-            sensor_msgs::ImageConstPtr msg;
-            {
-                std::unique_lock<std::mutex> lock(queue_mutex_);
-                if (image_queue_.empty()) {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            //WAIT FOR NEW IMAGE
+            cv_.wait(lock, [this] { return !producer_image_queue_.empty() || !keep_running_; });
+            if (!keep_running_) break;
+            
+            //ATOMICALY SWAP QUEUES
+            std::swap(consumer_image_queue_, producer_image_queue_);
+            //NOW UNLOCK
+            lock.unlock();
+            
+            //PROCESS ALL IMAGES IN THE QUEUE
+            while (!consumer_image_queue_.empty()) {
+                auto msg = consumer_image_queue_.front();
+                consumer_image_queue_.pop();
+                curr_queue_size_.fetch_sub(1, std::memory_order_relaxed);
+
+                //COLLECT TIMESTAMP
+                auto timestamp = msg->header.stamp;
+                cv::Mat image = convertImageMessageToMat(msg);
+
+                if (image.empty()) {
+                    ROS_ERROR("Failed to convert image message to cv::Mat. RGB8, BGR8 or MONO8 encoding expected.");
                     continue;
                 }
-                msg = image_queue_.front();
-                image_queue_.pop();
-            }
-            //COLLECT TIMESTAMP
-            auto timestamp = msg->header.stamp;
-            cv::Mat image = convertImageMessageToMat(msg);
-
-            if (image.empty()) {
-                ROS_ERROR("Failed to convert image message to cv::Mat. RGB8, BGR8 or MONO8 encoding expected.");
-                continue;
-            }
-        //TODO: ADD COMPILATION FLAG TO ENABLE/DISABLE COLOR PROCESSING
-            //BEGIN PREPROCESSING
-            cv::Mat imageMono;
-            if (image.channels() == 3) {
-                cv::cvtColor(image, imageMono, cv::COLOR_BGR2GRAY);
-                //CONVERT ORIGINAL TO HSV
-                cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
-            } else { //HOT FIX FOR MONO8 IMAGES
-                imageMono = image.clone();
-                cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
-                cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
-            }
-            cv::Mat preprocessedImage = preprocessImage(imageMono);
-
-            //BEGIN BLOB DETECTION AND PROCESSING
-            auto blobCarolusVec = findAndCalcContours(preprocessedImage, image, num_threads_);
-            if (blobCarolusVec) {
-                std::vector<BlobCarolus> best_blobs = selectBlobs(blobCarolusVec.value(), min_circularity_);
-                //IF FOUND BLOBS, DRAW THEM ON THE IMAGE AND PUBLISH
-                if (!best_blobs.empty()) {
-                    cv::Mat coloredPreprocessedImage;
-                    cv::cvtColor(preprocessedImage, coloredPreprocessedImage, cv::COLOR_GRAY2BGR);
-                    //GET HUE COLOR IN BGR FOR EACH BLOB
-                    for (const auto& blob : best_blobs) {
-                            double hue = blob.properties.hue;
-                            cv::Mat hsvColor(1, 1, CV_8UC3, cv::Scalar(hue, 255, 255)); // Full saturation and value
-                            cv::Mat bgrColor;
-                            cv::cvtColor(hsvColor, bgrColor, cv::COLOR_HSV2BGR);
-                            cv::Vec3b bgr = bgrColor.at<cv::Vec3b>(0, 0);
-
-                            //OPENCV CONVERSION
-                            cv::Scalar color(bgr[0], bgr[1], bgr[2]);
-
-                            // ROS_INFO("HUE: %f", blob.properties.hue);
-                            // ROS_INFO("Area: %f", blob.properties.m00);
-                            cv::circle(coloredPreprocessedImage, cv::Point(blob.blob.x, blob.blob.y), 5, color, -1);
-                    }
-
-                    auto resultIMG_msg = convertMatToImageMessage(coloredPreprocessedImage, msg->header);
-                    // ROS_INFO("Publishing processed image...");
-                    image_pub_.publish(resultIMG_msg);
-
-                    std::vector<Blob> blobs;
-                    blobs.reserve(best_blobs.size());
-                    for (const auto& blobCarolus : best_blobs) {
-                        blobs.emplace_back(blobCarolus.blob);
-                    }
-                    processBlobs(blobs, timestamp);
+            //TODO: ADD COMPILATION FLAG TO ENABLE/DISABLE COLOR PROCESSING
+                //BEGIN PREPROCESSING
+                cv::Mat imageMono;
+                if (image.channels() == 3) {
+                    cv::cvtColor(image, imageMono, cv::COLOR_BGR2GRAY);
+                    //CONVERT ORIGINAL TO HSV
+                    cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
+                } else { //HOT FIX FOR MONO8 IMAGES
+                    imageMono = image.clone();
+                    cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
+                    cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
                 }
-            } else {
-                ROS_INFO("No valid contours found.");
+                cv::Mat preprocessedImage = preprocessImage(imageMono);
+
+                //BEGIN BLOB DETECTION AND PROCESSING
+                auto blobCarolusVec = findAndCalcContours(preprocessedImage, image, num_threads_);
+                if (blobCarolusVec) {
+                    std::vector<BlobCarolus> best_blobs = selectBlobs(blobCarolusVec.value(), min_circularity_);
+                    //IF FOUND BLOBS, DRAW THEM ON THE IMAGE AND PUBLISH
+                    if (!best_blobs.empty()) {
+                        cv::Mat coloredPreprocessedImage;
+                        cv::cvtColor(preprocessedImage, coloredPreprocessedImage, cv::COLOR_GRAY2BGR);
+                        //GET HUE COLOR IN BGR FOR EACH BLOB
+                        for (const auto& blob : best_blobs) {
+                                double hue = blob.properties.hue;
+                                cv::Mat hsvColor(1, 1, CV_8UC3, cv::Scalar(hue, 255, 255)); // Full saturation and value
+                                cv::Mat bgrColor;
+                                cv::cvtColor(hsvColor, bgrColor, cv::COLOR_HSV2BGR);
+                                cv::Vec3b bgr = bgrColor.at<cv::Vec3b>(0, 0);
+
+                                //OPENCV CONVERSION
+                                cv::Scalar color(bgr[0], bgr[1], bgr[2]);
+
+                                // ROS_INFO("HUE: %f", blob.properties.hue);
+                                // ROS_INFO("Area: %f", blob.properties.m00);
+                                cv::circle(coloredPreprocessedImage, cv::Point(blob.blob.x, blob.blob.y), 5, color, -1);
+                        }
+
+                        auto resultIMG_msg = convertMatToImageMessage(coloredPreprocessedImage, msg->header);
+                        // ROS_INFO("Publishing processed image...");
+                        image_pub_.publish(resultIMG_msg);
+
+                        std::vector<Blob> blobs;
+                        blobs.reserve(best_blobs.size());
+                        for (const auto& blobCarolus : best_blobs) {
+                            blobs.emplace_back(blobCarolus.blob);
+                        }
+                        processBlobs(blobs, timestamp);
+                    }
+                } else {
+                    ROS_INFO("No valid contours found.");
+                }
+                //RELEASE IMAGE MEMORY
+                image.release();
+                imageMono.release();
+                preprocessedImage.release();
             }
-            //RELEASE IMAGE MEMORY
-            image.release();
-            imageMono.release();
-            preprocessedImage.release();
         }
     }
     CameraPose getFilteredPose(const CameraPose& new_pose) {
@@ -565,6 +589,7 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
 
 
 //NOT SUPPORTING YUV422 IMAGE IN THIS DEBUG VERSION, SINCE BENCHTEST BAGS ARE IN RGB8 OR BGR8
+//SUPPORTING ASTROBEE BAYER IMAGES
     cv::Mat convertImageMessageToMat(const sensor_msgs::ImageConstPtr& msg) {
         cv::Mat mat;
         if (msg->encoding == sensor_msgs::image_encodings::MONO8) {
@@ -574,7 +599,7 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
         } else if (msg->encoding == sensor_msgs::image_encodings::RGB8) {
             cv::Mat rgb(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0]), msg->step);
             cv::cvtColor(rgb, mat, cv::COLOR_RGB2BGR);
-        } else if (msg->encoding == sensor_msgs::image_encodings::bayer_grbg8){
+        } else if (msg->encoding == "bayer_grbg8"){ //HAVE TO USE STRING HERE...
             cv::Mat bayer(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
             cv::cvtColor(bayer, mat, cv::COLOR_BayerGR2BGR);
         } else {
@@ -603,11 +628,14 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
     image_transport::Subscriber image_sub_;
     image_transport::Publisher image_pub_;
     ros::Publisher pose_pub_;
-    std::queue<sensor_msgs::ImageConstPtr> image_queue_;
+    std::queue<sensor_msgs::ImageConstPtr> producer_image_queue_;
+    std::queue<sensor_msgs::ImageConstPtr> consumer_image_queue_;
     std::mutex queue_mutex_;
     std::thread process_thread_;
     bool keep_running_;
-    std::condition_variable cv_; 
+    std::condition_variable cv_;
+    std::condition_variable space_available_cv_;  
+
 
 //=========================================================
 //ROS LAUNCH MODIFIABLE PARAMETERS 
@@ -621,8 +649,9 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
     cv::Mat cameraMatrix_;
     cv::Mat distCoeffs_;
 
-
-
+    //QUEUE STUFF
+    size_t max_queue_size_;
+    std::atomic<size_t> curr_queue_size_; 
 
 };
 
