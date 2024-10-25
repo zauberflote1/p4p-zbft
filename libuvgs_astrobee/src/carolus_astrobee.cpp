@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-10-24 21:09:19
+ * @ Modified time: 2024-10-24 21:40:44
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -26,6 +26,8 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <condition_variable>
+#include <atomic>
 #include <image_transport/image_transport.h>
 #include <std_msgs/Float64.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -177,7 +179,7 @@ private:
     }
 
     void imageCallback(const sensor_msgs::ImageConstPtr& msg) {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
+        std::unique_lock<std::mutex> lock(queue_mutex_);
         image_queue_.push(msg);
     }
 
@@ -185,7 +187,7 @@ private:
         while (ros::ok() && keep_running_) {
             sensor_msgs::ImageConstPtr msg;
             {
-                std::lock_guard<std::mutex> lock(queue_mutex_);
+                std::unique_lock<std::mutex> lock(queue_mutex_);
                 if (image_queue_.empty()) {
                     continue;
                 }
@@ -575,7 +577,6 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
         } else if (msg->encoding == sensor_msgs::image_encodings::bayer_grbg8){
             cv::Mat bayer(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
             cv::cvtColor(bayer, mat, cv::COLOR_BayerGR2BGR);
-        }
         } else {
             ROS_ERROR("Unsupported encoding type: %s", msg->encoding.c_str());
             return cv::Mat();
@@ -606,6 +607,7 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
     std::mutex queue_mutex_;
     std::thread process_thread_;
     bool keep_running_;
+    std::condition_variable cv_; 
 
 //=========================================================
 //ROS LAUNCH MODIFIABLE PARAMETERS 
