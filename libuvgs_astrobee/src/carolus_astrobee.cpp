@@ -590,24 +590,46 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
 
 //NOT SUPPORTING YUV422 IMAGE IN THIS DEBUG VERSION, SINCE BENCHTEST BAGS ARE IN RGB8 OR BGR8
 //SUPPORTING ASTROBEE BAYER IMAGES
+    // cv::Mat convertImageMessageToMat(const sensor_msgs::ImageConstPtr& msg) {
+    //     cv::Mat mat;
+    //     if (msg->encoding == sensor_msgs::image_encodings::MONO8) {
+    //         mat = cv::Mat(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+    //     } else if (msg->encoding == sensor_msgs::image_encodings::BGR8) {
+    //         mat = cv::Mat(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+    //     } else if (msg->encoding == sensor_msgs::image_encodings::RGB8) {
+    //         cv::Mat rgb(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+    //         cv::cvtColor(rgb, mat, cv::COLOR_RGB2BGR);
+    //     } else if (msg->encoding == "bayer_grbg8"){ //HAVE TO USE STRING HERE...
+    //         cv::Mat bayer(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+    //         cv::cvtColor(bayer, mat, cv::COLOR_BayerGR2BGR);
+    //     } else {
+    //         ROS_ERROR("Unsupported encoding type: %s", msg->encoding.c_str());
+    //         return cv::Mat();
+    //     }
+    //     return mat.clone(); //FULL COPY CORRECTS ANY MEMORY ALIGNMENT ISSUES
+    // }
+
+    //ATTEMPTING TO REDUCE MEMORY USAGE BY NOT COPYING THE IMAGE
     cv::Mat convertImageMessageToMat(const sensor_msgs::ImageConstPtr& msg) {
-        cv::Mat mat;
-        if (msg->encoding == sensor_msgs::image_encodings::MONO8) {
-            mat = cv::Mat(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
-        } else if (msg->encoding == sensor_msgs::image_encodings::BGR8) {
-            mat = cv::Mat(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0]), msg->step);
-        } else if (msg->encoding == sensor_msgs::image_encodings::RGB8) {
-            cv::Mat rgb(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0]), msg->step);
-            cv::cvtColor(rgb, mat, cv::COLOR_RGB2BGR);
-        } else if (msg->encoding == "bayer_grbg8"){ //HAVE TO USE STRING HERE...
-            cv::Mat bayer(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
-            cv::cvtColor(bayer, mat, cv::COLOR_BayerGR2BGR);
-        } else {
-            ROS_ERROR("Unsupported encoding type: %s", msg->encoding.c_str());
-            return cv::Mat();
-        }
-        return mat.clone(); //FULL COPY CORRECTS ANY MEMORY ALIGNMENT ISSUES
+    if (msg->encoding == sensor_msgs::image_encodings::MONO8) {
+        return cv::Mat(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+    } else if (msg->encoding == sensor_msgs::image_encodings::BGR8) {
+        return cv::Mat(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+    } else if (msg->encoding == sensor_msgs::image_encodings::RGB8) {
+        cv::Mat rgb(msg->height, msg->width, CV_8UC3, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+        cv::Mat bgr;
+        cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
+        return bgr;
+    } else if (msg->encoding == "bayer_grbg8") {
+        cv::Mat bayer(msg->height, msg->width, CV_8UC1, const_cast<uint8_t*>(&msg->data[0]), msg->step);
+        cv::Mat bgr;
+        cv::cvtColor(bayer, bgr, cv::COLOR_BayerGR2BGR);
+        return bgr;
+    } else {
+        ROS_ERROR("Unsupported encoding type: %s", msg->encoding.c_str());
+        return cv::Mat(); //EMPTY MAT
     }
+}
 
     sensor_msgs::ImagePtr convertMatToImageMessage(const cv::Mat& mat, const std_msgs::Header& header) {
         sensor_msgs::ImagePtr msg = boost::make_shared<sensor_msgs::Image>();
