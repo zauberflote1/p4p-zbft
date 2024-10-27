@@ -48,7 +48,9 @@ public:
         keep_running_(true),
         //INITIALIZE THE QUEUE PARAMS
         max_queue_size_(10), //PLAY WITH THIS NUMBER BASED ON MEMORY USAGE
-        curr_queue_size_(0)
+        curr_queue_size_(0),
+        fisheye(true),
+        mono(true)
 
     {
         //LOAD USER PREFERENCES AND PARAMETERS
@@ -81,17 +83,28 @@ public:
         //CAMERA PROPERTIES (PINHOLE MODEL)
         double fx, fy, cx, cy;
         std::vector<double> distCoeffs_vector;
-       //D455 STRAIGHT FROM KALIBR
-        nh_.param("fx", fx, 423.84596179);
-        nh_.param("fy", fy, 422.96425442);
-        nh_.param("cx", cx, 423.75095666);
-        nh_.param("cy", cy, 248.55000177);
+        //NAVCAM PARAMTERS FROM WANNABEE
+        nh_.param("fx", fx, 603.78877);
+        nh_.param("fy", fy, 602.11334);
+        nh_.param("cx", cx, 575.92329);
+        nh_.param("cy", cy, 495.30887);
         nh_.getParam("distortion", distCoeffs_vector);
 
         if (distCoeffs_vector.size() != 4) {
             ROS_ERROR("Invalid distortion coefficients size, expected 4 elements, using default values.");
-            distCoeffs_vector = {-0.04360337, 0.03103359, -0.00098949, 0.00150547};
+            distCoeffs_vector = {0.993591, 0.0, 0.0, 0.0};
         }
+       //D455 STRAIGHT FROM KALIBR
+        // nh_.param("fx", fx, 423.84596179);
+        // nh_.param("fy", fy, 422.96425442);
+        // nh_.param("cx", cx, 423.75095666);
+        // nh_.param("cy", cy, 248.55000177);
+        // nh_.getParam("distortion", distCoeffs_vector);
+
+        // if (distCoeffs_vector.size() != 4) {
+        //     ROS_ERROR("Invalid distortion coefficients size, expected 4 elements, using default values.");
+        //     distCoeffs_vector = {-0.04360337, 0.03103359, -0.00098949, 0.00150547};
+        // }
 
         // if (distCoeffs_vector.size() != 4) {
         //     ROS_ERROR("Invalid distortion coefficients size, expected 4 elements, using default values.");
@@ -120,7 +133,7 @@ public:
         //      EITHER MODIFY THE CODE OR REMAP THE TOPICS FOR NOW
 
         //TODO: ADD NODLET OPTION TO MODIFY TOPICS AND LAUNCH MULTIPLE INSTANCES OF CAROLUSREXNODE
-        image_sub_ = image_transport_.subscribe("/d455/color/image_raw", 10, &CarolusRexNode::imageCallback, this);
+        image_sub_ = image_transport_.subscribe("/hw/cam_nav", 10, &CarolusRexNode::imageCallback, this);
         image_pub_ = image_transport_.advertise("/postprocessed/image", 10);
         pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("/pose", 10);
 
@@ -146,7 +159,7 @@ private:
 
         //D455 GOLDEN STANDARD?
         cv::GaussianBlur(image, blurred, cv::Size(3, 3), 1);
-        double threshValue = 240;
+        double threshValue = 250;//250
         cv::threshold(blurred, thresholded, threshValue, 255, cv::THRESH_BINARY);
         cv::Mat morph_kernel = cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(3, 3));
         cv::morphologyEx(thresholded, thresholded, cv::MORPH_CLOSE, morph_kernel, cv::Point(-1, -1), 2);
@@ -227,6 +240,8 @@ private:
                 }
             //TODO: ADD COMPILATION FLAG TO ENABLE/DISABLE COLOR PROCESSING
                 //BEGIN PREPROCESSING
+
+                //TODO:: REORGANIZE IMAGES FOR MONO CASE BETTER NO NEED TO CREATE A SECOND IMAGE....
                 cv::Mat imageMono;
                 if (image.channels() == 3) {
                     cv::cvtColor(image, imageMono, cv::COLOR_BGR2GRAY);
@@ -234,15 +249,25 @@ private:
                     cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
                 } else { //HOT FIX FOR MONO8 IMAGES
                     imageMono = image.clone();
-                    cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
-                    cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
+                    // cv::cvtColor(image, image, cv::COLOR_GRAY2BGR);
+                    // cv::cvtColor(image, image, cv::COLOR_BGR2HSV);
                 }
                 cv::Mat preprocessedImage = preprocessImage(imageMono);
 
                 //BEGIN BLOB DETECTION AND PROCESSING
-                auto blobCarolusVec = findAndCalcContours(preprocessedImage, image, num_threads_);
+                std::optional<std::vector<BlobCarolus>> blobCarolusVec;
+                if (mono){
+                     blobCarolusVec = findAndCalcContoursMono(preprocessedImage, num_threads_);
+                } else{
+                    blobCarolusVec = findAndCalcContours(preprocessedImage, image, num_threads_);
+                }
                 if (blobCarolusVec) {
-                    std::vector<BlobCarolus> best_blobs = selectBlobs(blobCarolusVec.value(), min_circularity_);
+                    std::vector<BlobCarolus> best_blobs;
+                    if (mono){
+                       best_blobs  = selectBlobsMono(blobCarolusVec.value(), min_circularity_);
+                    } else{
+                        best_blobs = selectBlobs(blobCarolusVec.value(), min_circularity_);
+                    }
                     //IF FOUND BLOBS, DRAW THEM ON THE IMAGE AND PUBLISH
                     if (!best_blobs.empty()) {
                         cv::Mat coloredPreprocessedImage;
@@ -407,6 +432,83 @@ std::optional<std::vector<BlobCarolus>> findAndCalcContours(const cv::Mat &image
     return blobs;
 }
 
+std::optional<std::vector<BlobCarolus>> findAndCalcContoursMono(const cv::Mat &image, int num_threads) {
+    std::vector<std::vector<cv::Point>> contours;
+
+    auto start = std::chrono::high_resolution_clock::now(); //TIME MEASUREMENT COUNTOURS START
+    //FIND CONTOURS IN THE IMAGE
+    cv::findContours(image, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+    auto end = std::chrono::high_resolution_clock::now(); //TIME MEASUREMENT COUNTOURS END
+    std::chrono::duration<double> duration = end - start;
+    ROS_INFO("Time to find contours: %f seconds", duration.count());
+
+    //CHECK IF CONTOURS ARE VALID
+    if (contours.empty() || contours.size() > 1000) {
+        ROS_ERROR("ERROR: %lu contours found", contours.size());
+        return std::nullopt;
+    }
+
+    //PREPARE FOR BLOB PROPERTIES CALCULATION
+    std::vector<BlobCarolus> blobs;
+    blobs.reserve(contours.size());
+
+    start = std::chrono::high_resolution_clock::now(); //TIME MEASUREMENT BLOBS START
+
+    //PARALLELIZE BLOB CALCULATIONS
+    std::vector<std::future<void>> futures;
+    std::mutex blobs_mutex;
+    int contours_per_thread = std::max(1, static_cast<int>(contours.size() / num_threads));
+    int remainder = contours.size() % num_threads;
+
+    for (int t = 0; t < num_threads; ++t) {
+        futures.emplace_back(std::async(std::launch::async, [this, t, contours_per_thread, remainder, &contours, &blobs, &blobs_mutex]() {
+            int start_idx = t * contours_per_thread + std::min(t, remainder);
+            int end_idx = start_idx + contours_per_thread + (t < remainder ? 1 : 0);
+
+            for (int i = start_idx; i < end_idx; ++i) {
+                const auto &contour = contours[i];
+
+                //CHECK AREA OF CONTOUR (m00)
+                cv::Moments moments = cv::moments(contour);
+                if (moments.m00 < 30|| moments.m00 > 2500) {
+                    continue;
+                }
+                //CALCULATE BLOB PROPERTIES
+                double perimeter = cv::arcLength(contour, true);
+                double circularity = (4 * CV_PI * moments.m00) / (perimeter * perimeter);
+                double x = moments.m10 / moments.m00; //CENTROID X
+                double y = moments.m01 / moments.m00; //CENTROID Y
+                
+
+                //TODO: ADD CIRCULAR MEAN ALGORITHM FOR HUE EXTRACTION AND CHECK BEHAVIOR WHEN DEALING WITH MONO8->HSV
+                //BOUND THE CONTOUR
+                cv::Rect boundingRect = cv::boundingRect(contour);
+
+                //CHECK HUE CONDITIONS PER BLOB COLOR
+
+
+                BlobCarolus blobCarolus;
+                blobCarolus.blob = {x, y};
+                blobCarolus.properties = {perimeter, moments.m00, circularity, 180, boundingRect};
+
+                std::lock_guard<std::mutex> lock(blobs_mutex);
+                blobs.emplace_back(std::move(blobCarolus));
+            }
+        }));
+    }
+
+    for (auto &fut : futures) {
+        fut.get();
+    }
+
+    end = std::chrono::high_resolution_clock::now(); //TIME MEASUREMENT BLOBS END
+    duration = end - start;
+    // ROS_INFO("Calc time: %f seconds", duration.count());
+
+    return blobs;
+}
+
+
 //SELECT BLOBS BASED ON CIRCULARITY AND VARIANCE --> NEEDS CLEANING AND OPTIMIZATION
 std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, double min_circularity) {
     std::vector<BlobCarolus> filtered_blobs;
@@ -497,6 +599,85 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
     return best_group;
 }
 
+//SELECT BLOBS BASED ON CIRCULARITY AND VARIANCE --> NEEDS CLEANING AND OPTIMIZATION
+std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, double min_circularity) {
+    std::vector<BlobCarolus> filtered_blobs;
+    filtered_blobs.reserve(blobs.size());
+
+    if (blobs.size() < 4) {
+        ROS_ERROR("Not enough blobs < 4.");
+        return {};
+    }
+
+    for (const auto& blob : blobs) {
+        if (blob.properties.circularity >= min_circularity) {
+            filtered_blobs.emplace_back(blob);
+        }
+    }
+
+    if (filtered_blobs.size() < 4) {
+        ROS_ERROR("Not enough blobs with required circularity.");
+        return {};
+    }
+
+    double min_variation = std::numeric_limits<double>::max();
+    std::vector<BlobCarolus> best_group;
+
+    for (size_t i = 0; i < filtered_blobs.size() - 3; ++i) {
+        for (size_t j = i + 1; j < filtered_blobs.size() - 2; ++j) {
+            for (size_t k = j + 1; k < filtered_blobs.size() - 1; ++k) {
+                for (size_t l = k + 1; l < filtered_blobs.size(); ++l) {
+
+                    
+                    double dist_ij = std::hypot(filtered_blobs[i].blob.x - filtered_blobs[j].blob.x, filtered_blobs[i].blob.y - filtered_blobs[j].blob.y);
+                    double dist_ik = std::hypot(filtered_blobs[i].blob.x - filtered_blobs[k].blob.x, filtered_blobs[i].blob.y - filtered_blobs[k].blob.y);
+                    double dist_il = std::hypot(filtered_blobs[i].blob.x - filtered_blobs[l].blob.x, filtered_blobs[i].blob.y - filtered_blobs[l].blob.y);
+                    double dist_jk = std::hypot(filtered_blobs[j].blob.x - filtered_blobs[k].blob.x, filtered_blobs[j].blob.y - filtered_blobs[k].blob.y);
+                    double dist_jl = std::hypot(filtered_blobs[j].blob.x - filtered_blobs[l].blob.x, filtered_blobs[j].blob.y - filtered_blobs[l].blob.y);
+                    double dist_kl = std::hypot(filtered_blobs[k].blob.x - filtered_blobs[l].blob.x, filtered_blobs[k].blob.y - filtered_blobs[l].blob.y);
+
+                    std::vector<double> distances = {dist_ij, dist_ik, dist_il, dist_jk, dist_jl, dist_kl};
+                    double max_distance = *std::max_element(distances.begin(), distances.end());
+                    double mean_distance = std::accumulate(distances.begin(), distances.end(), 0.0) / distances.size();
+                    double distance_variance = std::accumulate(distances.begin(), distances.end(), 0.0,
+                        [mean_distance](double sum, double distance) {
+                            return sum + std::pow(distance - mean_distance, 2);
+                        }) / distances.size();
+
+                    
+                    if (max_distance > 500) {
+                        continue;
+                    }
+
+                    
+                    std::vector<double> areas = {
+                        filtered_blobs[i].properties.m00,
+                        filtered_blobs[j].properties.m00,
+                        filtered_blobs[k].properties.m00,
+                        filtered_blobs[l].properties.m00
+                    };
+                    double mean_area = std::accumulate(areas.begin(), areas.end(), 0.0) / areas.size();
+                    double area_variance = std::accumulate(areas.begin(), areas.end(), 0.0,
+                        [mean_area](double sum, double area) {
+                            return sum + std::pow(area - mean_area, 2);
+                        }) / areas.size();
+
+
+                    double combined_variance = distance_variance + 1.5*area_variance;
+
+                    if (combined_variance < min_variation) {
+                        min_variation = combined_variance;
+                        best_group = {filtered_blobs[i], filtered_blobs[j], filtered_blobs[k], filtered_blobs[l]};
+                    }
+                }
+            }
+        }
+    }
+
+    return best_group;
+}
+
+
 
  void processBlobs(const std::vector<Blob>& blobs, const ros::Time& timestamp) {
     if (blobs.size() < 4) {
@@ -511,7 +692,12 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
     }
 
     std::vector<cv::Point2f> undistortedPoints;
+    if (fisheye){
+    //FISHEYE CAMERA MODEL
+    cv::fisheye::undistortPoints(distortedPoints, undistortedPoints, cameraMatrix_, distCoeffs_);
+    } else {
     cv::undistortPoints(distortedPoints, undistortedPoints, cameraMatrix_, distCoeffs_);
+    }
 
     //UNDISTORTED POINTS ARE NORMALIZED, CONVERT BACK TO ORIGINAL IMAGE SPACE
     double fx = cameraMatrix_.at<double>(0, 0);
@@ -670,6 +856,8 @@ std::vector<BlobCarolus> selectBlobs(const std::vector<BlobCarolus>& blobs, doub
     std::vector<Eigen::Vector3d> knownPoints_;
     cv::Mat cameraMatrix_;
     cv::Mat distCoeffs_;
+    bool fisheye;
+    bool mono;
 
     //QUEUE STUFF
     size_t max_queue_size_;

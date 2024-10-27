@@ -14,7 +14,7 @@
 #include <vector>
 #include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
-
+#include <opencv2/calib3d.hpp>
 
 struct CameraPose {
     Eigen::Matrix3d R;
