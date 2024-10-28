@@ -49,7 +49,8 @@ public:
         //INITIALIZE THE QUEUE PARAMS
         max_queue_size_(10), //PLAY WITH THIS NUMBER BASED ON MEMORY USAGE
         curr_queue_size_(0),
-        fisheye(true),
+        fisheye(false),
+        fov(true),
         mono(true)
 
     {
@@ -81,7 +82,6 @@ public:
         }
 
         //CAMERA PROPERTIES (PINHOLE MODEL)
-        double fx, fy, cx, cy;
         std::vector<double> distCoeffs_vector;
         //NAVCAM PARAMTERS FROM WANNABEE
         nh_.param("fx", fx, 603.78877);
@@ -127,6 +127,12 @@ public:
                                                 0, 0, 1);
 
         distCoeffs_ = (cv::Mat_<double>(1, 4) << distCoeffs_vector[0], distCoeffs_vector[1], distCoeffs_vector[2], distCoeffs_vector[3]);
+
+        if (fov){
+                preCalculateFov(distCoeffs_);
+
+        }
+
 
         //SETUP SUBSCRIBER AND PUBLISHERS
         //TEMP: LEAVING AS DEFAULT, CANNOT BE MODIFIED IN THE LAUNCH FILE 
@@ -233,6 +239,10 @@ private:
                 //COLLECT TIMESTAMP
                 auto timestamp = msg->header.stamp;
                 cv::Mat image = convertImageMessageToMat(msg);
+                if (!imagesizeSet){
+                    imagesize_ = Eigen::Vector2d(static_cast<double>(image.cols), static_cast<double>(image.rows));
+                    imagesizeSet = true;
+                }
 
                 if (image.empty()) {
                     ROS_ERROR("Failed to convert image message to cv::Mat. RGB8, BGR8 or MONO8 encoding expected.");
@@ -692,33 +702,63 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
     }
 
     std::vector<cv::Point2f> undistortedPoints;
-    if (fisheye){
-    //FISHEYE CAMERA MODEL
-    cv::fisheye::undistortPoints(distortedPoints, undistortedPoints, cameraMatrix_, distCoeffs_);
+    if (!fov) {
+        if (fisheye){
+        //FISHEYE CAMERA MODEL
+        cv::fisheye::undistortPoints(distortedPoints, undistortedPoints, cameraMatrix_, distCoeffs_);
+        } else { //RADTAN
+        cv::undistortPoints(distortedPoints, undistortedPoints, cameraMatrix_, distCoeffs_);
+        }
     } else {
-    cv::undistortPoints(distortedPoints, undistortedPoints, cameraMatrix_, distCoeffs_);
+        //FOV
+        undistortedPoints = undistortAstrobeeFov(distortedPoints, imagesize_);
+        
     }
 
     //UNDISTORTED POINTS ARE NORMALIZED, CONVERT BACK TO ORIGINAL IMAGE SPACE
-    double fx = cameraMatrix_.at<double>(0, 0);
-    double fy = cameraMatrix_.at<double>(1, 1);
-    double cx = cameraMatrix_.at<double>(0, 2);
-    double cy = cameraMatrix_.at<double>(1, 2);
-    
- 
+
 
     std::vector<Eigen::Vector3d> imagePoints;
-    imagePoints.reserve(undistortedPoints.size());
-    for (const auto& point : undistortedPoints) {
+
+
+
+    CameraPose bestPose;
+    int measType_ = 2;
+
+    if (!fov){
+
+        imagePoints.reserve(undistortedPoints.size());
+        for (const auto& point : undistortedPoints) {
         imagePoints.emplace_back(Eigen::Vector3d(point.x, point.y, 1.0).normalized());
-    }
+        }
 
-    std::vector<Eigen::Vector3d> sortedImagePoints(4);
-    bool success = SortTargetsUsingTetrahedronGeometry(imagePoints, sortedImagePoints);
+        std::vector<Eigen::Vector3d> sortedImagePoints(4);
+        bool success = SortTargetsUsingTetrahedronGeometry(imagePoints, sortedImagePoints);
+        for (int i = 0; i < sortedImagePoints.size(); i++) {
+            sortedImagePoints[i](0) = sortedImagePoints[i](0) * fx +cx;
+            sortedImagePoints[i](1) = sortedImagePoints[i](1) * fy +cy;
+        }
 
-    for (int i = 0; i < sortedImagePoints.size(); i++) {
-        sortedImagePoints[i](0) = sortedImagePoints[i](0) * fx +cx;
-        sortedImagePoints[i](1) = sortedImagePoints[i](1) * fy +cy;
+        //COBRAS FUMANTES POSE SOLVER
+        //THE SNAKE IS GOING TO SMOKE
+        CobrasFumantes poseSolver(cameraMatrix_, measType_);
+        poseSolver.computeAndValidatePosesWithRefinement(sortedImagePoints, knownPoints_, undistortedPoints, bestPose);
+    } else {
+        imagePoints.reserve(undistortedPoints.size());
+        for (const auto& point : undistortedPoints) {
+        imagePoints.emplace_back(Eigen::Vector3d(point.x, point.y, 1.0));
+        }
+
+        std::vector<Eigen::Vector3d> sortedImagePoints(4);
+        bool success = SortTargetsUsingTetrahedronGeometry(imagePoints, sortedImagePoints);
+        for (int i = 0; i < sortedImagePoints.size(); i++) {
+            sortedImagePoints[i](0) = sortedImagePoints[i](0); // * fx;
+            sortedImagePoints[i](1) = sortedImagePoints[i](1); // * fy;
+        }
+        //COBRAS FUMANTES POSE SOLVER
+        //THE SNAKE IS GOING TO SMOKE
+        CobrasFumantes poseSolver(camMatrixAstrobee, measType_);
+        poseSolver.computeAndValidatePosesWithRefinement(sortedImagePoints, knownPoints_, undistortedPoints, bestPose);
     }
    
 
@@ -727,12 +767,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
     //     return;
     // }
 
-    CameraPose bestPose;
-    int measType_ = 2;
-    //COBRAS FUMANTES POSE SOLVER
-    //THE SNAKE IS GOING TO SMOKE
-    CobrasFumantes poseSolver(cameraMatrix_, measType_);
-    poseSolver.computeAndValidatePosesWithRefinement(sortedImagePoints, knownPoints_, undistortedPoints, bestPose);
+
 
     if (bestPose.R.allFinite() && bestPose.t.allFinite()) {
         CameraPose filteredPose = getFilteredPose(bestPose);
@@ -742,8 +777,8 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
         std::stringstream sst;
         sst << bestPose.t.transpose().format(Eigen::IOFormat());
 
-        ROS_INFO("Filtered Rotation matrix R:\n%s", ssR.str().c_str());
-        ROS_INFO("Filtered Translation vector t:\n%s", sst.str().c_str());
+        ROS_INFO("Rotation matrix R:\n%s", ssR.str().c_str());
+        ROS_INFO("Translation vector t:\n%s", sst.str().c_str());
 
 
         //PUB ASTROBEE POSE
@@ -816,6 +851,56 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
         return cv::Mat(); //EMPTY MAT
     }
 }
+    void preCalculateFov (const cv::Mat distCfs) {
+        distortion_precalc1_ = 1 / distCfs.at<double>(0, 0);
+        distortion_precalc2_ = 2 * tan(distCfs.at<double>(0, 0) / 2);
+        fov_distortion_coeff = distCfs.at<double>(0, 0);
+        camMatrixAstrobee = (cv::Mat_<double>(3, 3) << fx, 0, 0,
+                                        0, fy, 0,
+                                        0, 0, 1);
+}
+
+    
+    //AT THE EDGE OF MADNESS, IN TIME OF SADNESS, AN IMORTAL SOLDIER FINDS HIS HOME!
+    std::vector<cv::Point2f> undistortAstrobeeFov(const std::vector<cv::Point2f>& distortedPoints, const Eigen::Vector2d& image_size) {
+        // std::vector<Eigen::Vector3d> 
+
+        Eigen::Vector2d focal_length_(fx, fy);
+        Eigen::Vector2d optical_offset_(cx, cy);
+
+        //NOW DIVIDE IMAGE SIZE BY 2
+        Eigen::Vector2d distorted_half_size_ = Eigen::Vector2d(image_size(0), image_size(1)) / 2.0;
+
+        std::vector<cv::Point2f> undistortedPoints;
+        undistortedPoints.reserve(distortedPoints.size());
+
+        //UNDISTORT POINTS ACCORDING TO ASTROBEE FOV MODEL
+        for (const auto& distortedPoint : distortedPoints) {
+            Eigen::Vector2d distorted_c(distortedPoint.x, distortedPoint.y);
+            //CONVERT TO IMAGE CENTER COOORDINATE FRAME
+            distorted_c -= distorted_half_size_;
+
+            //NORMALIZE THE DISTORTED POINTS AND UNDISTORT THEM
+            Eigen::Vector2d norm = (distorted_c - (optical_offset_ - distorted_half_size_)).cwiseQuotient(focal_length_);
+            double rd = norm.norm();
+            double ru = tan(rd * fov_distortion_coeff) / distortion_precalc2_;
+            double conv = 1.0;
+            if (rd > 1e-5) {
+                conv = ru / rd;
+            }
+            Eigen::Vector2d undistorted_c = conv * norm.cwiseProduct(focal_length_);
+
+            // Convert back to cv::Point2f
+            undistortedPoints.emplace_back(undistorted_c.x(), undistorted_c.y());
+        }
+
+    return undistortedPoints;
+}
+        
+        
+
+
+
 
     sensor_msgs::ImagePtr convertMatToImageMessage(const cv::Mat& mat, const std_msgs::Header& header) {
         sensor_msgs::ImagePtr msg = boost::make_shared<sensor_msgs::Image>();
@@ -827,7 +912,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
         msg->step = mat.step;
         msg->data.assign(mat.datastart, mat.dataend);
         return msg;
-    }
+}
 
 //=========================================================
 //DO NOT MESS WITH THESE UNLESS YOU KNOW WHAT YOU ARE DOING
@@ -858,10 +943,20 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
     cv::Mat distCoeffs_;
     bool fisheye;
     bool mono;
+    bool fov;
+    double fx, fy, cx, cy;
+    double fov_distortion_coeff;
 
     //QUEUE STUFF
     size_t max_queue_size_;
     std::atomic<size_t> curr_queue_size_; 
+
+    //FOV ASTROBEE
+    double distortion_precalc1_;
+    double distortion_precalc2_;
+    cv::Mat camMatrixAstrobee;
+    bool imagesizeSet = false;
+    Eigen::Vector2d imagesize_;
 
 };
 
