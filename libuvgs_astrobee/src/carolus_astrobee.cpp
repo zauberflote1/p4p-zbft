@@ -54,6 +54,13 @@ public:
         mono(true)
 
     {
+        if (fov && fisheye){
+            ROS_ERROR("Cannot have both Fisheye and FOV enabled, disabling Fisheye");
+            fisheye = false;
+        }
+        if (!fov && !fisheye){
+            ROS_WARN("Using RADTAN distortion model, consider enabling FOV for ASTROBEE better performance");
+        }
         //LOAD USER PREFERENCES AND PARAMETERS
 
         //CONTROL PARAMETERS
@@ -715,8 +722,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
         
     }
 
-    //UNDISTORTED POINTS ARE NORMALIZED, CONVERT BACK TO ORIGINAL IMAGE SPACE
-
+   
 
     std::vector<Eigen::Vector3d> imagePoints;
 
@@ -726,7 +732,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
     int measType_ = 2;
 
     if (!fov){
-
+         //UNDISTORTED POINTS ARE NORMALIZED, CONVERT BACK TO ORIGINAL IMAGE SPACE
         imagePoints.reserve(undistortedPoints.size());
         for (const auto& point : undistortedPoints) {
         imagePoints.emplace_back(Eigen::Vector3d(point.x, point.y, 1.0).normalized());
@@ -890,7 +896,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
             }
             Eigen::Vector2d undistorted_c = conv * norm.cwiseProduct(focal_length_);
 
-            // Convert back to cv::Point2f
+            //THIS IS BAD PRACTICE, I DON'T NEED THE POINTS IN CV FORMAT, BUT FOR NOW WE'LL SEE IF THIS WORKS...
             undistortedPoints.emplace_back(undistorted_c.x(), undistorted_c.y());
         }
 
