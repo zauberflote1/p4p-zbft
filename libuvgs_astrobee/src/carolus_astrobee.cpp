@@ -66,12 +66,14 @@ public:
         //CONTROL PARAMETERS
         nh_.param("num_threads", num_threads_, 1);
         nh_.param("min_circularity", min_circularity_, 0.5);
+        nh_.param("nav_cam", _nav_cam, false);
+        nh_.param("dock_cam", _dock_cam, false);
 
         //BEACON POINTS
         std::vector<double> known_points_vector;
         if (nh_.getParam("known_points", known_points_vector)) {
             if (known_points_vector.size() % 3 != 0) {
-                ROS_ERROR("Invalid known points size, expected multiple of 3");
+                ROS_WARN("Invalid known points size, expected multiple of 3");
             } else {
                 knownPoints_.clear();
                 for (size_t i = 0; i < known_points_vector.size(); i += 3) {
@@ -87,19 +89,43 @@ public:
                 {0.0, 0.0, 0.037}
             };
         }
+        if (_nav_cam && _dock_cam ) {
+            ROS_ERROR("Cannot have both NAV and DOCK cameras disabled, disabling DOCK");
+            _dock_cam = false;
+        }
+
+        if (!_nav_cam && !_dock_cam) {
+            ROS_ERROR("Cannot have both NAV and DOCK cameras disabled, enabling NAV");
+            _nav_cam = true;
+        }
 
         //CAMERA PROPERTIES (PINHOLE MODEL)
         std::vector<double> distCoeffs_vector;
-        //NAVCAM PARAMTERS FROM WANNABEE
-        nh_.param("fx", fx, 603.78877);
-        nh_.param("fy", fy, 602.11334);
-        nh_.param("cx", cx, 575.92329);
-        nh_.param("cy", cy, 495.30887);
-        nh_.getParam("distortion", distCoeffs_vector);
+        if (_nav_cam){
+            //NAVCAM PARAMTERS FROM WANNABEE
+            nh_.param("fx", fx, 603.78877);
+            nh_.param("fy", fy, 602.11334);
+            nh_.param("cx", cx, 575.92329);
+            nh_.param("cy", cy, 495.30887);
+            nh_.getParam("distortion", distCoeffs_vector);
 
-        if (distCoeffs_vector.size() != 4) {
-            ROS_ERROR("Invalid distortion coefficients size, expected 4 elements, using default values.");
-            distCoeffs_vector = {0.993591, 0.0, 0.0, 0.0};
+            if (distCoeffs_vector.size() != 4) {
+                // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                distCoeffs_vector = {0.993591, 0.0, 0.0, 0.0};
+            }
+        }
+        if (_dock_cam){
+            //DOCKCAM PARAMTERS FROM WANNABEE
+            nh_.param("fx", fx, 753.50986);
+            nh_.param("fy", fy, 751.15119);
+            nh_.param("cx", cx, 565.35452);
+            nh_.param("cy", cy, 483.81274);
+            nh_.getParam("distortion", distCoeffs_vector);
+
+            if (distCoeffs_vector.size() != 4) {
+                // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                distCoeffs_vector = { 1.00447, 0.0, 0.0, 0.0};
+            }
         }
        //D455 STRAIGHT FROM KALIBR
         // nh_.param("fx", fx, 423.84596179);
@@ -146,7 +172,12 @@ public:
         //      EITHER MODIFY THE CODE OR REMAP THE TOPICS FOR NOW
 
         //TODO: ADD NODLET OPTION TO MODIFY TOPICS AND LAUNCH MULTIPLE INSTANCES OF CAROLUSREXNODE
-        image_sub_ = image_transport_.subscribe("/hw/cam_nav", 10, &CarolusRexNode::imageCallback, this);
+        if (_nav_cam){
+            image_sub_ = image_transport_.subscribe("/hw/cam_nav", 10, &CarolusRexNode::imageCallback, this);
+        }
+        if (_dock_cam){
+            image_sub_ = image_transport_.subscribe("/hw/cam_dock", 10, &CarolusRexNode::imageCallback, this);
+        }
         image_pub_ = image_transport_.advertise("/postprocessed/image", 10);
         pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("/pose", 10);
 
@@ -744,6 +775,10 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
             sortedImagePoints[i](0) = sortedImagePoints[i](0) * fx +cx;
             sortedImagePoints[i](1) = sortedImagePoints[i](1) * fy +cy;
         }
+        if (!success) {
+            ROS_ERROR("Failed to sort targets using tetrahedron geometry.");
+            return;
+        }
 
         //COBRAS FUMANTES POSE SOLVER
         //THE SNAKE IS GOING TO SMOKE
@@ -757,6 +792,10 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
 
         std::vector<Eigen::Vector3d> sortedImagePoints(4);
         bool success = SortTargetsUsingTetrahedronGeometry(imagePoints, sortedImagePoints);
+        if (!success) {
+            ROS_ERROR("Failed to sort targets using tetrahedron geometry.");
+            return;
+        }
         for (int i = 0; i < sortedImagePoints.size(); i++) {
             sortedImagePoints[i](0) = sortedImagePoints[i](0); // * fx;
             sortedImagePoints[i](1) = sortedImagePoints[i](1); // * fy;
@@ -768,10 +807,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
     }
    
 
-    // if (!success) {
-    //     ROS_ERROR("Failed to sort targets using tetrahedron geometry.");
-    //     return;
-    // }
+
 
 
 
@@ -950,6 +986,8 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
     bool fisheye;
     bool mono;
     bool fov;
+    bool _dock_cam;
+    bool _nav_cam;
     double fx, fy, cx, cy;
     double fov_distortion_coeff;
 
