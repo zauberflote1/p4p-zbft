@@ -838,7 +838,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
 
         ff_msgs::VisualLandmarks PoseAstrobee;
         PoseAstrobee.header.stamp = ros::Time::now();  
-        PoseAstrobee.header.frame_id = "bumblebee/body";
+        PoseAstrobee.header.frame_id = "wanabee/body";
         PoseAstrobee.landmarks = std::vector<ff_msgs::VisualLandmark>(std::begin(visual_landmarks_vec_), std::end(visual_landmarks_vec_));
         PoseAstrobee.camera_id = 1; //TRACKING
         PoseAstrobee.runtime = timestamp.toSec();//NOT SURE HERE NOT FILLED ON MARKER TRACKING
