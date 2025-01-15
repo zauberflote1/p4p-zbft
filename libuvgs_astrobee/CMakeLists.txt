@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   ##ADD FOR ASTROBEE
   geometry_msgs
+  ff_msgs
 )
 
 find_package(OpenCV REQUIRED)

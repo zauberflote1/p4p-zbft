@@ -29,6 +29,8 @@
 #include <condition_variable>
 #include <atomic>
 #include <image_transport/image_transport.h>
+#include <ff_msgs/VisualLandmarks.h>
+#include <ff_msgs/VisualLandmark.h>
 #include <std_msgs/Float64.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <sensor_msgs/Image.h>
@@ -179,7 +181,7 @@ public:
             image_sub_ = image_transport_.subscribe("/hw/cam_dock", 10, &CarolusRexNode::imageCallback, this);
         }
         image_pub_ = image_transport_.advertise("/postprocessed/image", 10);
-        pose_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("/pose", 10);
+        pose_pub_ = nh_.advertise<ff_msgs::VisualLandmarks>("/loc/ar/features", 10);
 
         process_thread_ = std::thread(&CarolusRexNode::processImages, this);
         ROS_INFO("============================================");
@@ -797,8 +799,17 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
             return;
         }
         for (int i = 0; i < sortedImagePoints.size(); i++) {
+  
             sortedImagePoints[i](0) = sortedImagePoints[i](0); // * fx;
             sortedImagePoints[i](1) = sortedImagePoints[i](1); // * fy;
+        //GOTTA CREATE THE LANDMARK MESSAGE AS PER ASTORBBE DEFS
+            visual_landmarks_vec_[i].u = sortedImagePoints[i](0);
+            visual_landmarks_vec_[i].v = sortedImagePoints[i](1);
+            visual_landmarks_vec_[i].x = knownPoints_[i](0);
+            visual_landmarks_vec_[i].y = knownPoints_[i](1);
+            visual_landmarks_vec_[i].z = knownPoints_[i](2);
+
+
         }
         //COBRAS FUMANTES POSE SOLVER
         //THE SNAKE IS GOING TO SMOKE
@@ -815,7 +826,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
         CameraPose filteredPose = getFilteredPose(bestPose);
         
         std::stringstream ssR;
-        ssR << bestPose.R.format(Eigen::IOFormat());
+        ssR << (bestPose.R.transpose()).format(Eigen::IOFormat());
         std::stringstream sst;
         sst << bestPose.t.transpose().format(Eigen::IOFormat());
 
@@ -824,9 +835,17 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
 
 
         //PUB ASTROBEE POSE
-        geometry_msgs::PoseStamped PoseAstrobee;
-        PoseAstrobee.header.stamp = timestamp;  
-        PoseAstrobee.header.frame_id = "honey/body";
+
+        ff_msgs::VisualLandmarks PoseAstrobee;
+        PoseAstrobee.header.stamp = ros::Time::now();  
+        PoseAstrobee.header.frame_id = "bumblebee/body";
+        PoseAstrobee.landmarks = std::vector<ff_msgs::VisualLandmark>(std::begin(visual_landmarks_vec_), std::end(visual_landmarks_vec_));
+        PoseAstrobee.camera_id = 1; //TRACKING
+        PoseAstrobee.runtime = timestamp.toSec();//NOT SURE HERE NOT FILLED ON MARKER TRACKING
+
+
+        
+
 
 
         //REMOVE STATIC CAST --> EIGEN ARE ALREADY DOUBLE
@@ -1002,6 +1021,9 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
     bool imagesizeSet = false;
     Eigen::Vector2d imagesize_;
 
+    //ASTROBEE MSGS
+    ff_msgs::VisualLandmark visual_landmarks_vec_[4];
+
 };
 
 int main(int argc, char **argv) {
@@ -1014,3 +1036,4 @@ int main(int argc, char **argv) {
 
     return 0;
 }
+
