@@ -1,0 +1,29 @@
+<launch>
+    <node name="carolus_astrobee_rex" pkg="carolus_astrobee" type="carolus_astrobee" output="screen">
+        <!-- Execution Parameters -->
+        <param name="num_threads" value="1" />
+        
+        <!-- Blob Filtering Parameters -->
+        <param name="min_circularity" value="0.4" />
+        <param name="saturation_threshold" value="15" />
+
+        <!-- Camera Parameters -->
+        <param name="nav_cam" value="true" />
+        <param name="dock_cam" value="false" />
+        <param name="fisheye" value="false" />
+        <param name="fov" value="true" />
+        <param name="mono" value="true" />
+        
+        <!-- Robot Configuration -->
+        <param name="bot_name" value="bsharp" />
+
+        <!-- Camera Intrinsic Parameters -->
+        <param name="fx" value="603.78877" />
+        <param name="fy" value="602.11334" />
+        <param name="cx" value="575.92329" />
+        <param name="cy" value="495.30887" />
+
+        <!-- Known Beacon Points -->
+        <param name="known_points" value="0.055 0.0 0.0 -0.055 0.0 0.0 0.0 0.048 0.0 0.0 0.0 0.037" />
+    </node>
+</launch>

@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2024-10-24 22:08:14
+ * @ Modified time: 2025-01-27 01:02:47
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -53,9 +53,25 @@ public:
         curr_queue_size_(0),
         fisheye(false),
         fov(true),
-        mono(true)
+        mono(true),
+        _bot_name("wannabee")
 
     {
+        auto private_nh_ = ros::NodeHandle("~");
+               //CONTROL PARAMETERS
+        private_nh_.param("num_threads", num_threads_, 1);
+        private_nh_.param("min_circularity", min_circularity_, 0.5);
+        private_nh_.param("nav_cam", nav_cam_, false);
+        private_nh_.param("dock_cam", dock_cam_, false);
+        private_nh_.param("saturation_threshold", saturation_threshold_, 15);
+        private_nh_.param("fisheye", fisheye, false);
+        private_nh_.param("fov", fov, true);
+        private_nh_.param("mono", mono, true);
+        private_nh_.param("bot_name", _bot_name, std::string("wannabee"));
+
+
+
+
         if (fov && fisheye){
             ROS_ERROR("Cannot have both Fisheye and FOV enabled, disabling Fisheye");
             fisheye = false;
@@ -65,15 +81,12 @@ public:
         }
         //LOAD USER PREFERENCES AND PARAMETERS
 
-        //CONTROL PARAMETERS
-        nh_.param("num_threads", num_threads_, 1);
-        nh_.param("min_circularity", min_circularity_, 0.5);
-        nh_.param("nav_cam", _nav_cam, false);
-        nh_.param("dock_cam", _dock_cam, false);
+ 
+
 
         //BEACON POINTS
         std::vector<double> known_points_vector;
-        if (nh_.getParam("known_points", known_points_vector)) {
+        if (private_nh_.getParam("known_points", known_points_vector)) {
             if (known_points_vector.size() % 3 != 0) {
                 ROS_WARN("Invalid known points size, expected multiple of 3");
             } else {
@@ -91,44 +104,88 @@ public:
                 {0.0, 0.0, 0.037}
             };
         }
-        if (_nav_cam && _dock_cam ) {
-            ROS_ERROR("Cannot have both NAV and DOCK cameras disabled, disabling DOCK");
-            _dock_cam = false;
+        if (nav_cam_) {
+            ROS_INFO("NAV CAM ENABLED");
+            if(dock_cam_ ) {
+            ROS_ERROR("Cannot have both NAV and DOCK cameras enabled, disabling DOCK");
+            dock_cam_ = false;
+            }
         }
 
-        if (!_nav_cam && !_dock_cam) {
+
+        if (!nav_cam_ ){
+            ROS_INFO("DOCK CAM ENABLED");
+            if(!dock_cam_) {
             ROS_ERROR("Cannot have both NAV and DOCK cameras disabled, enabling NAV");
-            _nav_cam = true;
-        }
-
-        //CAMERA PROPERTIES (PINHOLE MODEL)
-        std::vector<double> distCoeffs_vector;
-        if (_nav_cam){
-            //NAVCAM PARAMTERS FROM WANNABEE
-            nh_.param("fx", fx, 603.78877);
-            nh_.param("fy", fy, 602.11334);
-            nh_.param("cx", cx, 575.92329);
-            nh_.param("cy", cy, 495.30887);
-            nh_.getParam("distortion", distCoeffs_vector);
-
-            if (distCoeffs_vector.size() != 4) {
-                // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
-                distCoeffs_vector = {0.993591, 0.0, 0.0, 0.0};
+            nav_cam_ = true;
             }
         }
-        if (_dock_cam){
-            //DOCKCAM PARAMTERS FROM WANNABEE
-            nh_.param("fx", fx, 753.50986);
-            nh_.param("fy", fy, 751.15119);
-            nh_.param("cx", cx, 565.35452);
-            nh_.param("cy", cy, 483.81274);
-            nh_.getParam("distortion", distCoeffs_vector);
+            std::vector<double> distCoeffs_vector;
 
-            if (distCoeffs_vector.size() != 4) {
-                // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
-                distCoeffs_vector = { 1.00447, 0.0, 0.0, 0.0};
+        if (_bot_name == "wannabee"){
+            ROS_INFO("WANNABEE BOT SELECTED");
+
+            //CAMERA PROPERTIES (PINHOLE MODEL)
+            if (nav_cam_){
+                //NAVCAM PARAMTERS FROM WANNABEE
+                private_nh_.param("fx", fx, 603.78877);
+                private_nh_.param("fy", fy, 602.11334);
+                private_nh_.param("cx", cx, 575.92329);
+                private_nh_.param("cy", cy, 495.30887);
+                private_nh_.getParam("distortion", distCoeffs_vector);
+
+                if (distCoeffs_vector.size() != 4) {
+                    // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                    distCoeffs_vector = {0.993591, 0.0, 0.0, 0.0};
+                }
+            }
+            if (dock_cam_){
+                //DOCKCAM PARAMTERS FROM WANNABEE
+                private_nh_.param("fx", fx, 753.50986);
+                private_nh_.param("fy", fy, 751.15119);
+                private_nh_.param("cx", cx, 565.35452);
+                private_nh_.param("cy", cy, 483.81274);
+                private_nh_.getParam("distortion", distCoeffs_vector);
+
+                if (distCoeffs_vector.size() != 4) {
+                    // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                    distCoeffs_vector = { 1.00447, 0.0, 0.0, 0.0};
+                }
+            }
+        } if (_bot_name == "bsharp") {
+            ROS_INFO("BSHARP BOT SELECTED");
+
+            // CAMERA PROPERTIES (PINHOLE MODEL)
+
+            if (nav_cam_) {
+                // NAVCAM PARAMETERS FROM BSHARP
+                private_nh_.param("fx", fx, 603.78877);
+                private_nh_.param("fy", fy, 602.11334);
+                private_nh_.param("cx", cx, 575.92329);
+                private_nh_.param("cy", cy, 495.30887);
+                private_nh_.getParam("distortion", distCoeffs_vector);
+
+                if (distCoeffs_vector.size() != 4) {
+                    // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                    distCoeffs_vector = {0.993591, 0.0, 0.0, 0.0};
+                }
+            }
+
+            if (dock_cam_) {
+                // DOCKCAM PARAMETERS FROM BSHARP
+                private_nh_.param("fx", fx, 753.50986);
+                private_nh_.param("fy", fy, 751.15119);
+                private_nh_.param("cx", cx, 565.35452);
+                private_nh_.param("cy", cy, 483.81274);
+                private_nh_.getParam("distortion", distCoeffs_vector);
+
+                if (distCoeffs_vector.size() != 4) {
+                    // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                    distCoeffs_vector = {1.00447, 0.0, 0.0, 0.0};
+                }
             }
         }
+
        //D455 STRAIGHT FROM KALIBR
         // nh_.param("fx", fx, 423.84596179);
         // nh_.param("fy", fy, 422.96425442);
@@ -174,10 +231,10 @@ public:
         //      EITHER MODIFY THE CODE OR REMAP THE TOPICS FOR NOW
 
         //TODO: ADD NODLET OPTION TO MODIFY TOPICS AND LAUNCH MULTIPLE INSTANCES OF CAROLUSREXNODE
-        if (_nav_cam){
+        if (nav_cam_){
             image_sub_ = image_transport_.subscribe("/hw/cam_nav", 10, &CarolusRexNode::imageCallback, this);
         }
-        if (_dock_cam){
+        if (dock_cam_){
             image_sub_ = image_transport_.subscribe("/hw/cam_dock", 10, &CarolusRexNode::imageCallback, this);
         }
         image_pub_ = image_transport_.advertise("/postprocessed/image", 10);
@@ -838,9 +895,13 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
 
         ff_msgs::VisualLandmarks PoseAstrobee;
         PoseAstrobee.header.stamp = ros::Time::now();  
-        PoseAstrobee.header.frame_id = "wanabee/body";
+        PoseAstrobee.header.frame_id = "wannabee/body";
         PoseAstrobee.landmarks = std::vector<ff_msgs::VisualLandmark>(std::begin(visual_landmarks_vec_), std::end(visual_landmarks_vec_));
-        PoseAstrobee.camera_id = 1; //TRACKING
+        if (dock_cam_){
+            PoseAstrobee.camera_id = 0; //DOCKING
+        } else {
+            PoseAstrobee.camera_id = 1; //NAVCAM
+        }
         PoseAstrobee.runtime = timestamp.toSec();//NOT SURE HERE NOT FILLED ON MARKER TRACKING
 
 
@@ -1005,8 +1066,9 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
     bool fisheye;
     bool mono;
     bool fov;
-    bool _dock_cam;
-    bool _nav_cam;
+    bool dock_cam_;
+    bool nav_cam_;
+    std::string _bot_name;
     double fx, fy, cx, cy;
     double fov_distortion_coeff;
 
@@ -1027,7 +1089,7 @@ std::vector<BlobCarolus> selectBlobsMono(const std::vector<BlobCarolus>& blobs, 
 };
 
 int main(int argc, char **argv) {
-    ros::init(argc, argv, "carolus_rex_node");
+    ros::init(argc, argv, "carolus_astrobee_rex");
     ros::NodeHandle nh;
 
     CarolusRexNode node(nh);
