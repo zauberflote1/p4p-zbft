@@ -18,10 +18,10 @@
         <param name="bot_name" value="bsharp" />
 
         <!-- Camera Intrinsic Parameters -->
-        <param name="fx" value="603.78877" />
+        <!-- <param name="fx" value="603.78877" />
         <param name="fy" value="602.11334" />
         <param name="cx" value="575.92329" />
-        <param name="cy" value="495.30887" />
+        <param name="cy" value="495.30887" /> -->
 
         <!-- Known Beacon Points -->
         <param name="known_points" value="0.055 0.0 0.0 -0.055 0.0 0.0 0.0 0.048 0.0 0.0 0.0 0.037" />
