@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2025-02-21 21:47:33
+ * @ Modified time: 2025-03-11 04:10:41
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -492,10 +492,10 @@ private:
         }
         avg_t /= pose_queue_.size();
 
-        // Compute average rotation using SLERP
-        Eigen::Quaterniond q_avg = Eigen::Quaterniond::Identity();
-        double weight = 1.0 / pose_queue_.size();
+       // Compute average rotation using SLERP
+        Eigen::Quaterniond q_avg;
         bool initialized = false;
+        int count = 0;
 
         for (const auto& pose : pose_queue_) {
             Eigen::Quaterniond q_pose(pose.R);
@@ -503,10 +503,11 @@ private:
                 q_avg = q_pose;
                 initialized = true;
             } else {
-                q_avg = q_avg.slerp(weight, q_pose);
+                double w = 1.0 / (count + 1);
+                q_avg = q_avg.slerp(w, q_pose);
             }
+            count++;
         }
-
         // Convert quaternion back to rotation matrix
         Eigen::Matrix3d avg_R = q_avg.normalized().toRotationMatrix();
 
