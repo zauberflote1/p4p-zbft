@@ -2,7 +2,7 @@
  * @ Author: zauberflote1
  * @ Create Time: 2024-06-28 00:53:33
  * @ Modified by: zauberflote1
- * @ Modified time: 2025-03-11 04:10:41
+ * @ Modified time: 2025-03-25 18:45:23
  * @ Description:
  * POSE ESTIMATION NODE FROM A 4 POINT TARGET NODE USING ROS
  * (NOT USING CV_BRIDGE AS IT MAY NOT BE COMPATIBLE WITH RESOURCE CONSTRAINED/CUSTOMS SYSTEMS)
@@ -66,6 +66,8 @@ public:
         private_nh_.param("min_circularity", min_circularity_, 0.5);
         private_nh_.param("nav_cam", nav_cam_, false);
         private_nh_.param("dock_cam", dock_cam_, false);
+        private_nh_.param("sci_cam_compressed", sci_cam_compressed_, false);
+        private_nh_.param("sci_cam", sci_cam_, false);
         private_nh_.param("saturation_threshold", saturation_threshold_, 15);
         private_nh_.param("fisheye", fisheye, false);
         private_nh_.param("fov", fov, true);
@@ -85,6 +87,8 @@ public:
         //TOPIC PARAMETERS
         private_nh_.param("dock_cam_topic", dock_cam_topic_, std::string("/hw/cam_dock"));
         private_nh_.param("nav_cam_topic", nav_cam_topic_, std::string("/hw/cam_nav"));
+        private_nh_.param("sci_cam_topic", sci_cam_topic_, std::string("/hw/cam_sci/"));
+
         private_nh_.param("processed_image_topic", processed_image_topic_, std::string("/postprocessed/image"));
         private_nh_.param("pose_topic", pose_topic_, std::string("/loc/ar/features"));
         //BENCHTEST
@@ -134,19 +138,39 @@ public:
         }
         if (nav_cam_) {
             ROS_INFO("NAV CAM ENABLED");
-            if(dock_cam_ ) {
-            ROS_ERROR("Cannot have both NAV and DOCK cameras enabled, disabling DOCK");
-            dock_cam_ = false;
+            if (dock_cam_ || sci_cam_compressed_ || sci_cam_) {
+                ROS_ERROR("Only one camera can be enabled at a time. Disabling all except NAV CAM.");
+                dock_cam_ = false;
+                sci_cam_compressed_ = false;
+                sci_cam_ = false;
             }
-        }
-
-
-        if (!nav_cam_ ){
+        } else if (dock_cam_) {
             ROS_INFO("DOCK CAM ENABLED");
-            if(!dock_cam_) {
-            ROS_ERROR("Cannot have both NAV and DOCK cameras disabled, enabling NAV");
-            nav_cam_ = true;
+            if (nav_cam_ || sci_cam_compressed_ || sci_cam_) {
+                ROS_ERROR("Only one camera can be enabled at a time. Disabling all except DOCK CAM.");
+                nav_cam_ = false;
+                sci_cam_compressed_ = false;
+                sci_cam_ = false;
             }
+        } else if (sci_cam_compressed_) {
+            ROS_INFO("SCI CAM COMPRESSED ENABLED");
+            if (nav_cam_ || dock_cam_ || sci_cam_) {
+                ROS_ERROR("Only one camera can be enabled at a time. Disabling all except SCI CAM COMPRESSED.");
+                nav_cam_ = false;
+                dock_cam_ = false;
+                sci_cam_ = false;
+            }
+        } else if (sci_cam_) {
+            ROS_INFO("SCI CAM ENABLED");
+            if (nav_cam_ || dock_cam_ || sci_cam_compressed_) {
+                ROS_ERROR("Only one camera can be enabled at a time. Disabling all except SCI CAM.");
+                nav_cam_ = false;
+                dock_cam_ = false;
+                sci_cam_compressed_ = false;
+            }
+        } else {
+            ROS_ERROR("No camera is enabled. Enabling NAV CAM by default.");
+            nav_cam_ = true;
         }
             std::vector<double> distCoeffs_vector;
 
@@ -178,6 +202,32 @@ public:
                 if (distCoeffs_vector.size() != 4) {
                     // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
                     distCoeffs_vector = { 1.00447, 0.0, 0.0, 0.0};
+                }
+            }
+            if (sci_cam_compressed_){
+                //SCICAM COMPRESSED PARAMETERS FROM WANNABEE PLACEHOLDER
+                private_nh_.param("fx", fx, 875.9435630126997);
+                private_nh_.param("fy", fy, 875.5638319050095);
+                private_nh_.param("cx", cx, 576.0009986724265);
+                private_nh_.param("cy", cy, 342.73010114675753);
+                private_nh_.getParam("distortion", distCoeffs_vector);
+
+                if (distCoeffs_vector.size() != 4) {
+                    // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                    distCoeffs_vector = {0.0, 0.0, 0.0, 0.0};
+                }
+            }
+            if (sci_cam_){
+                //SCICAM PARAMETERS FROM WANNABEE PLACEHOLDER
+                private_nh_.param("fx", fx, 875.9435630126997);
+                private_nh_.param("fy", fy, 875.5638319050095);
+                private_nh_.param("cx", cx, 576.0009986724265);
+                private_nh_.param("cy", cy, 342.73010114675753);
+                private_nh_.getParam("distortion", distCoeffs_vector);
+
+                if (distCoeffs_vector.size() != 4) {
+                    // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                    distCoeffs_vector = {0.0, 0.0, 0.0, 0.0};
                 }
             }
         } if (_bot_name == "bsharp") {
@@ -212,6 +262,33 @@ public:
                     distCoeffs_vector = {1.00447, 0.0, 0.0, 0.0};
                 }
             }
+            if (sci_cam_compressed_) {
+                // SCICAM COMPRESSED PARAMETERS PLACEHOLDER
+                private_nh_.param("fx", fx, 875.9435630126997);
+                private_nh_.param("fy", fy, 875.5638319050095);
+                private_nh_.param("cx", cx, 576.0009986724265);
+                private_nh_.param("cy", cy, 342.73010114675753);
+                private_nh_.getParam("distortion", distCoeffs_vector);
+
+                if (distCoeffs_vector.size() != 4) {
+                    // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                    distCoeffs_vector = {0.0, 0.0, 0.0, 0.0};
+                }
+            }
+            if (sci_cam_){
+                //SCICAM PARAMETERS FROM BSHARP PLACEHOLDER
+                private_nh_.param("fx", fx, 875.9435630126997);
+                private_nh_.param("fy", fy, 875.5638319050095);
+                private_nh_.param("cx", cx, 576.0009986724265);
+                private_nh_.param("cy", cy, 342.73010114675753);
+                private_nh_.getParam("distortion", distCoeffs_vector);
+
+                if (distCoeffs_vector.size() != 4) {
+                    // ROS_WARN("Using default distortion coefficients, expected 4 elements.");
+                    distCoeffs_vector = {0.0, 0.0, 0.0, 0.0};
+                }
+            }
+        
         }
 
        //D455 STRAIGHT FROM KALIBR
@@ -265,6 +342,12 @@ public:
         if (dock_cam_){
             image_sub_ = image_transport_.subscribe(dock_cam_topic_, 10, &CarolusRexNode::imageCallback, this);
         }
+        if (sci_cam_compressed_){
+            image_sub_ = image_transport_.subscribe(sci_cam_topic_, 10, &CarolusRexNode::imageCallback, this, image_transport::TransportHints("compressed"));
+        }
+        if (sci_cam_){
+            image_sub_ = image_transport_.subscribe(sci_cam_topic_, 10, &CarolusRexNode::imageCallback, this);
+        }
         image_pub_ = image_transport_.advertise(processed_image_topic_, 10);
         pose_pub_ = nh_.advertise<ff_msgs::VisualLandmarks>(pose_topic_, 10);
 
@@ -289,12 +372,12 @@ private:
         cv::Mat blurred, thresholded;
 
         //D455 GOLDEN STANDARD?
-        cv::GaussianBlur(image, blurred, cv::Size(kernel_size_gaussian_, kernel_size_gaussian_), 1);
+        cv::GaussianBlur(image, blurred, cv::Size(kernel_size_gaussian_, kernel_size_gaussian_), 0);
         double threshValue = image_threshold_;//250;//250
         cv::threshold(blurred, thresholded, threshValue, 255, cv::THRESH_BINARY);
         cv::Mat morph_kernel = cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(kernel_size_morph_, kernel_size_morph_));
-        cv::morphologyEx(thresholded, thresholded, cv::MORPH_CLOSE, morph_kernel, cv::Point(-1, -1), 2);
-        cv::morphologyEx(thresholded, thresholded, cv::MORPH_DILATE, morph_kernel, cv::Point(-1, -1), 1);
+        cv::morphologyEx(thresholded, thresholded, cv::MORPH_CLOSE, morph_kernel, cv::Point(-1, -1), 1);
+        // cv::morphologyEx(thresholded, thresholded, cv::MORPH_DILATE, morph_kernel, cv::Point(-1, -1), 1);
         return thresholded;
 
 
@@ -364,6 +447,10 @@ private:
                 //COLLECT TIMESTAMP
                 auto timestamp = msg->header.stamp;
                 cv::Mat image = convertImageMessageToMat(msg);
+                if (image.empty() || !image.data) {
+                    ROS_ERROR("Empty or invalid cv::Mat from image message, skipping processing");
+                    continue;
+                }
                 if (!imagesizeSet){
                     imagesize_ = Eigen::Vector2d(static_cast<double>(image.cols), static_cast<double>(image.rows));
                     imagesizeSet = true;
@@ -542,16 +629,31 @@ private:
         //PARALLELIZE BLOB CALCULATIONS
         std::vector<std::future<void>> futures;
         std::mutex blobs_mutex;
-        int contours_per_thread = std::max(1, static_cast<int>(contours.size() / num_threads));
-        int remainder = contours.size() % num_threads;
+        int num_threads_used = std::min(num_threads, static_cast<int>(contours.size()));
+        int contours_per_thread = contours.size() / num_threads_used;
+        int remainder = contours.size() % num_threads_used;
 
-        for (int t = 0; t < num_threads; ++t) {
-            futures.emplace_back(std::async(std::launch::async, [this, t, contours_per_thread, remainder, &contours, &blobs, &blobs_mutex, &originalImageHSV]() {
-                int start_idx = t * contours_per_thread + std::min(t, remainder);
-                int end_idx = start_idx + contours_per_thread + (t < remainder ? 1 : 0);
+        int start_idx = 0;
+
+        for (int t = 0; t < num_threads_used; ++t) {
+            int end_idx = start_idx + contours_per_thread + (t < remainder ? 1 : 0);
+            futures.emplace_back(std::async(std::launch::async, [start_idx, end_idx, &contours, &blobs, &blobs_mutex, &originalImageHSV, this]() {
+
+        // int contours_per_thread = std::max(1, static_cast<int>(contours.size() / num_threads));
+        // int remainder = contours.size() % num_threads;
+
+        // for (int t = 0; t < num_threads; ++t) {
+        //     futures.emplace_back(std::async(std::launch::async, [this, t, contours_per_thread, remainder, &contours, &blobs, &blobs_mutex, &originalImageHSV]() {
+        //         int start_idx = t * contours_per_thread + std::min(t, remainder);
+        //         int end_idx = start_idx + contours_per_thread + (t < remainder ? 1 : 0);
+
 
                 for (int i = start_idx; i < end_idx; ++i) {
                     const auto &contour = contours[i];
+
+                    if (contours[i].size() < 5 || contour.empty()) {
+                        continue;
+                    }
 
                     //CHECK AREA OF CONTOUR (m00)
                     cv::Moments moments = cv::moments(contour);
@@ -559,13 +661,12 @@ private:
                         continue;
                     }
                     //CALCULATE BLOB PROPERTIES
-                    double perimeter = cv::arcLength(contour, true);
+                      double perimeter = cv::arcLength(contour, true);
                     double circularity = (4 * CV_PI * moments.m00) / (perimeter * perimeter);
                     double x = moments.m10 / moments.m00; //CENTROID X
                     double y = moments.m01 / moments.m00; //CENTROID Y
                     
                     //HUE EXTRACTION PROCESS
-                    //TODO: ADD CIRCULAR MEAN ALGORITHM FOR HUE EXTRACTION AND CHECK BEHAVIOR WHEN DEALING WITH MONO8->HSV
                     //BOUND THE CONTOUR
                     cv::Rect boundingRect = cv::boundingRect(contour);
                     cv::Mat BlobRegion = originalImageHSV(boundingRect);
@@ -574,14 +675,48 @@ private:
                     //FILTER OUT BAD PIXELS
                     cv::inRange(BlobRegion, cv::Scalar(0, saturation_threshold_, 0), cv::Scalar(180, 255, 255), maskHSV);
                     //CALCULATE HUE --> meanHSV[0] 0-180
-                    cv::Scalar meanHSV = cv::mean(BlobRegion, maskHSV);
-                    // if (meanHSV[0] < 94 && meanHSV[0] > 92) {
-                    //     continue;
-                    // }
-                    if (meanHSV[0] < lb_hue_ || meanHSV[0] > ub_hue_) {
-                        continue;
-                    }
-                    //CHECK HUE CONDITIONS PER BLOB COLOR
+                    cv::Scalar meanHSV;
+                    // if (!options.blob_config.circular_mean_hue) {
+                    //     meanHSV = cv::mean(BlobRegion, maskHSV);
+                    //     if (meanHSV[0] < options.blob_config.lb_hue || meanHSV[0] > options.blob_config.ub_hue) {
+                    //         continue;
+                    //     }
+                    // } else { //CIRCULAR MEAN ALGORITHM
+                        std::vector<cv::Mat> hsvChannels;
+                        cv::split(BlobRegion, hsvChannels);
+                        cv::Mat hueChannel = hsvChannels[0];
+
+                        double sumSin = 0.0;
+                        double sumCos = 0.0;
+                        int count = 0;
+
+                        for (int i = 0; i < hueChannel.rows; ++i) {
+                            for (int j = 0; j < hueChannel.cols; ++j) {
+                                if (maskHSV.at<uchar>(i, j) != 0) {  
+                                double hue = hueChannel.at<uchar>(i, j) * 2.0 * CV_PI / 180.0;
+                                sumSin += std::sin(hue);
+                                sumCos += std::cos(hue);
+                                ++count;
+                                }
+                            }
+                        }  
+
+                        double meanAngle = std::atan2(sumSin / count, sumCos / count) * 180.0 / CV_PI;
+                        if (meanAngle < 0) meanAngle += 360.0;
+                            meanHSV[0] = meanAngle/ 2.0;
+
+                        
+                        //CHECK HUE CONDITIONS PER BLOB COLOR
+                        if (std::isnan(meanHSV[0]) || std::isinf(meanHSV[0])) {
+                            continue;
+                        }
+                        if (meanHSV[0] < 27){ //WRAP VALUE ADJUST AS NEEDED
+                            meanHSV[0] = 180 - meanHSV[0];
+                        }
+                        if (meanHSV[0] < lb_hue_ || meanHSV[0] > ub_hue_) {
+                            continue;
+                        }
+                    
 
 
                     BlobCarolus blobCarolus;
@@ -592,6 +727,7 @@ private:
                     blobs.emplace_back(std::move(blobCarolus));
                 }
             }));
+             start_idx = end_idx;
         }
 
         for (auto &fut : futures) {
@@ -626,18 +762,18 @@ private:
         blobs.reserve(contours.size());
 
         start = std::chrono::high_resolution_clock::now(); //TIME MEASUREMENT BLOBS START
-
         //PARALLELIZE BLOB CALCULATIONS
         std::vector<std::future<void>> futures;
         std::mutex blobs_mutex;
-        int contours_per_thread = std::max(1, static_cast<int>(contours.size() / num_threads));
-        int remainder = contours.size() % num_threads;
+        int num_threads_used = std::min(num_threads, static_cast<int>(contours.size()));
+        int contours_per_thread = contours.size() / num_threads_used;
+        int remainder = contours.size() % num_threads_used;
 
-        for (int t = 0; t < num_threads; ++t) {
-            futures.emplace_back(std::async(std::launch::async, [this, t, contours_per_thread, remainder, &contours, &blobs, &blobs_mutex]() {
-                int start_idx = t * contours_per_thread + std::min(t, remainder);
-                int end_idx = start_idx + contours_per_thread + (t < remainder ? 1 : 0);
+        int start_idx = 0;
 
+        for (int t = 0; t < num_threads_used; ++t) {
+            int end_idx = start_idx + contours_per_thread + (t < remainder ? 1 : 0);
+            futures.emplace_back(std::async(std::launch::async, [this, t, start_idx, end_idx, contours_per_thread, remainder, &contours, &blobs, &blobs_mutex]() {
                 for (int i = start_idx; i < end_idx; ++i) {
                     const auto &contour = contours[i];
 
@@ -668,6 +804,7 @@ private:
                     blobs.emplace_back(std::move(blobCarolus));
                 }
             }));
+            start_idx = end_idx;
         }
 
         for (auto &fut : futures) {
@@ -758,7 +895,7 @@ private:
                                 return sum + std::pow(hues - mean_hue, 2);
                             }) / hues.size();
 
-                        double combined_variance = distance_variance + 1.5*area_variance; //+ intensity_hues;
+                        double combined_variance = distance_variance + 5*area_variance; //+ intensity_hues;
 
                         if (combined_variance < min_variation) {
                             min_variation = combined_variance;
@@ -811,6 +948,7 @@ private:
 
                         std::vector<double> distances = {dist_ij, dist_ik, dist_il, dist_jk, dist_jl, dist_kl};
                         double max_distance = *std::max_element(distances.begin(), distances.end());
+                        double min_distance = *std::min_element(distances.begin(), distances.end());
                         double mean_distance = std::accumulate(distances.begin(), distances.end(), 0.0) / distances.size();
                         double distance_variance = std::accumulate(distances.begin(), distances.end(), 0.0,
                             [mean_distance](double sum, double distance) {
@@ -819,6 +957,9 @@ private:
 
                         
                         if (max_distance > max_distance_lim_) {//500
+                            continue;
+                        }
+                        if (min_distance < 100) {//500
                             continue;
                         }
 
@@ -1150,6 +1291,8 @@ private:
     bool fov;
     bool dock_cam_;
     bool nav_cam_;
+    bool sci_cam_;
+    bool sci_cam_compressed_;
     std::string _bot_name;
     double fx, fy, cx, cy;
     double fov_distortion_coeff;
@@ -1163,7 +1306,7 @@ private:
     double lb_hue_;
     double ub_hue_;
     //TOPIC NAMES
-    std::string nav_cam_topic_, dock_cam_topic_, processed_image_topic_, pose_topic_;
+    std::string nav_cam_topic_, dock_cam_topic_, sci_cam_topic_, pose_topic_, processed_image_topic_;
     //BENCHTEST
     bool benchtest;
     //FIFO
