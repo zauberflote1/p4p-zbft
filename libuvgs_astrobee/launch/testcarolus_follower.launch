@@ -32,13 +32,13 @@
         <param name="bot_name" value="wannabee" />
 
         <!-- Camera Intrinsic Parameters -->
-        <param name="fx" value="423.84596179" />
-        <param name="fy" value="422.96425442" />
-        <param name="cx" value="423.75095666" />
-        <param name="cy" value="248.55000177" /> 
+        <param name="fx" value="859.44015" />
+        <param name="fy" value="849.35466" />
+        <param name="cx" value="754.24485" />
+        <param name="cy" value="487.7349" /> 
 
         <!-- Distortion Coefficients  -->
-        <param name="distortion" value="-0.04360337, 0.03103359, -0.00098949, 0.00150547" />
+        <param name="distortion" value="0.128628, -0.167456, 0.00213421, -0.00262211" />
 
         <!-- Topic Names -->
         <param name="dock_cam_topic" value="/d455/color/image_raw" />
